@@ -20,8 +20,18 @@ export type ChatRequest = {
     selfConsistency?: boolean
     /** N samples for B1. */
     samples?: number
+    /** Override the answering model. Judge model is unaffected. */
+    model?: string
   }
 }
+
+/** Models offered in the comparison view. */
+export const COMPARE_MODELS = [
+  { id: 'gemini-3.5-flash-lite', label: 'Flash Lite 3.5', note: 'small, fast' },
+  { id: 'gemini-3.6-flash', label: 'Flash 3.6', note: 'larger' },
+  { id: 'gemini-3.5-flash', label: 'Flash 3.5', note: 'larger' },
+  { id: 'gemini-3.1-flash-lite', label: 'Flash Lite 3.1', note: 'older, small' },
+] as const
 
 // ---------------------------------------------------------------- labels
 
@@ -140,6 +150,8 @@ export type Verdict = {
   sources: Source[]
   perplexity: Perplexity | null
   timing: { totalMs: number; cached: boolean }
+  /** Which model produced the answer being judged. */
+  model: string
   /** Google requires rendering this when using Search grounding. */
   searchSuggestionHtml?: string | null
 }

@@ -1,6 +1,6 @@
 /** The verification pipeline. Emits StreamEvents as each stage lands. */
 
-import { generate, judgeJson, toContents, JUDGE_MODEL } from '@/lib/gemini/client'
+import { generate, judgeJson, toContents, JUDGE_MODEL, MODEL } from '@/lib/gemini/client'
 import { buildSources } from '@/lib/sources'
 import { findEvidence } from '@/lib/search'
 import { fuse } from '@/lib/signals'
@@ -140,13 +140,16 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
   const useConsistency = req.options?.selfConsistency ?? process.env.TRUSTAI_SELF_CONSISTENCY !== 'false'
   const N = req.options?.samples ?? Number(process.env.TRUSTAI_SAMPLES || 3)
   const timeout = Number(process.env.TRUSTAI_FETCH_TIMEOUT_MS || 8000)
+  // The answering model is swappable; the judge is not, so a comparison
+  // measures the models being compared rather than two different graders.
+  const model = req.options?.model || MODEL()
 
   // Gate 0 / 0b
   emit({ type: 'stage', stage: 'classifying', detail: 'Checking if this is a factual claim' })
   const { kind, standalone } = await gate(req.messages)
 
   if (kind !== 'FACTUAL') {
-    const gen = await generate(toContents(req.messages), { temperature: 0.7 })
+    const gen = await generate(toContents(req.messages), { temperature: 0.7, model })
     emit({ type: 'token', text: gen.text })
     emit({
       type: 'verdict',
@@ -155,6 +158,7 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
         reasons: ['This message does not assert anything that can be checked'],
         warnings: [], overrides: [], parameters: [], claims: [], sources: [],
         perplexity: null, timing: { totalMs: Date.now() - started, cached: false },
+        model,
       },
     })
     return
@@ -164,7 +168,7 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
   // model never gets to pick the sources it will be judged against.
   emit({ type: 'stage', stage: 'generating', detail: 'Asking Gemini' })
   const gen = await generate(toContents(req.messages), {
-    logprobs: true, temperature: 0,
+    model, logprobs: true, temperature: 0,
     systemInstruction:
       'Answer factual questions concisely in 1-4 sentences. State facts plainly. Do not add caveats about your own uncertainty.',
   })
@@ -200,7 +204,7 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
       const raw = await Promise.all(
         Array.from({ length: N }, () =>
           generate([{ role: 'user', parts: [{ text: standalone + '\n\nAnswer in one short sentence.' }] }],
-            { temperature: 0.8 })
+            { temperature: 0.8, model })
             .then((r) => r.text.trim())
             .catch(() => '')
         )
@@ -239,6 +243,7 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
     gen, claims, sources, pages,
     question: standalone, consistency,
     perplexity: resolvePerplexity(gen, samples),
+    model,
     sentenceCount: sentences.length,
     citedSentences: Math.min(citedSentences, sentences.length),
   })

@@ -285,3 +285,50 @@ live pipeline only.
 **Why:** With D-18 the live path works end to end, so canned data has no purpose.
 Its keyword routing also fell back to the Python case for almost every input,
 which read as the tool answering every question with Python.
+
+---
+
+## D-21 - Model comparison shares one judge
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Decision:** The comparison view runs two answering models side by side over
+the same question, but both are verified by the same judge model, the same
+retrieved pages and the same weights. Only `options.model` differs.
+
+**Why:** Swapping the grader alongside the model would measure two graders
+rather than two models. Holding everything else fixed is what makes the
+comparison mean anything.
+
+---
+
+## D-22 - The judge never sees the expected answer
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Context:** "The judge has to have the answer" - how do we show that?
+
+**Decision:** The C2 judge is given the claim and the retrieved page text, and
+nothing else. It is never given a reference answer, at runtime or during
+evaluation. Correctness is demonstrated in two separate places instead:
+
+1. **Per answer** - the verbatim quote, string-matched against the page we
+   fetched. That quote *is* the projection of the claim onto the evidence, and
+   it is shown inline in the UI.
+2. **Across the system** - `data/seed.json` carries hand-assigned expected
+   labels. `/eval` runs the real pipeline and reports predicted vs expected,
+   an accuracy figure and a confusion matrix.
+
+**Why:** Giving the judge the answer would make verification circular - it would
+confirm what we told it, and the tool would report high confidence on its own
+assumptions. Ground truth belongs in the scoring harness, never in the loop
+being scored.
+
+---
+
+## D-23 - Retry transient 503/429 twice
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Decision:** `generate()` retries 503 and 429 up to twice with a short backoff.
+
+**Why:** The popular models return 503 under load. In the comparison view that
+surfaced as one column silently empty, which reads as a broken product rather
+than a busy upstream.

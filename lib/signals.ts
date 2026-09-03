@@ -56,6 +56,7 @@ type Inputs = {
   sentenceCount: number
   citedSentences: number
   perplexity: PerplexityResult
+  model: string
 }
 
 export function fuse(inp: Inputs): Verdict {
@@ -276,6 +277,7 @@ export function fuse(inp: Inputs): Verdict {
       ? null
       : { value: ppx.value, interpretation: ppx.interpretation, caption: ppx.caption },
     timing: { totalMs: 0, cached: false },
+    model: inp.model,
     searchSuggestionHtml: gen.grounding?.searchEntryPoint?.renderedContent ?? null,
   }
 }

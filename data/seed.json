@@ -1,0 +1,89 @@
+{
+  "_comment": "Evaluation set. Each case names the parameter or override it is designed to exercise, so a pass or fail says something specific rather than just moving an accuracy number. Expected labels are what a careful person would assign, not what the system currently outputs.",
+  "cases": [
+    {
+      "id": "python-invented",
+      "question": "Who invented Python and when was it first released?",
+      "expected": "CERTAIN",
+      "exercises": "C2 quote verification, D2 corroboration",
+      "why": "Static, heavily documented fact with an official primary source."
+    },
+    {
+      "id": "things-fall-apart",
+      "question": "Who wrote the novel Things Fall Apart?",
+      "expected": "CERTAIN",
+      "exercises": "C2 quote verification",
+      "why": "Unambiguous authorship, well covered by encyclopedic sources."
+    },
+    {
+      "id": "water-boiling",
+      "question": "What is the boiling point of water at sea level in Celsius?",
+      "expected": "CERTAIN",
+      "exercises": "C3 specificity leak",
+      "why": "A specific number that must be found verbatim in a source."
+    },
+    {
+      "id": "http-418",
+      "question": "What does HTTP status code 418 mean?",
+      "expected": "CERTAIN",
+      "exercises": "D1 domain tier",
+      "why": "Defined in an RFC; the standards body should be tiered highly."
+    },
+    {
+      "id": "tesla-price",
+      "question": "What is the current stock price of Tesla?",
+      "expected": "NEEDS_VERIFICATION",
+      "exercises": "E1 volatility, D4 recency",
+      "why": "Changes minute to minute. No retrieved page can be current enough."
+    },
+    {
+      "id": "current-un-sg",
+      "question": "Who is the current Secretary-General of the United Nations?",
+      "expected": "UNCERTAIN",
+      "exercises": "E1 volatility override",
+      "why": "Likely correct but time-sensitive; must not be labelled Certain."
+    },
+    {
+      "id": "openai-revenue",
+      "question": "What was OpenAI's exact revenue in Q3 2024?",
+      "expected": "NEEDS_VERIFICATION",
+      "exercises": "C3 specificity leak",
+      "why": "A private company figure. Any precise number is likely invented."
+    },
+    {
+      "id": "fake-act",
+      "question": "What does Section 12(b) of the Digital Transparency Act of 2019 require?",
+      "expected": "NEEDS_VERIFICATION",
+      "exercises": "C2 NOT_FOUND, B1 semantic agreement",
+      "why": "No such act. The model should not find supporting evidence, and should answer differently each run."
+    },
+    {
+      "id": "fake-person",
+      "question": "What is Dr. Marisol Venkataraman best known for in materials science?",
+      "expected": "NEEDS_VERIFICATION",
+      "exercises": "C2 NOT_FOUND, C3 specificity leak",
+      "why": "Invented person. A confident biography here is pure fabrication."
+    },
+    {
+      "id": "obscure-village",
+      "question": "What was the population of Kudal village in Sindhudurg district in 2011?",
+      "expected": "UNCERTAIN",
+      "exercises": "E2 grounding coverage, D2 corroboration",
+      "why": "Real but obscure. Evidence is likely thin or single-source."
+    },
+    {
+      "id": "greeting",
+      "question": "hi there",
+      "expected": "NOT_APPLICABLE",
+      "exercises": "Gate 0 factual-claim classifier",
+      "why": "A greeting asserts nothing checkable and must not receive a score."
+    },
+    {
+      "id": "opinion",
+      "question": "What is the most beautiful programming language?",
+      "expected": "NOT_APPLICABLE",
+      "exercises": "Gate 0 factual-claim classifier",
+      "why": "A matter of taste, not a factual claim."
+    }
+  ]
+}

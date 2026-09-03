@@ -43,6 +43,8 @@ export type GenerateOptions = {
   /** Structured output: a JSON schema the response must conform to. */
   responseSchema?: Record<string, unknown>
   signal?: AbortSignal
+  /** Internal retry counter for transient 503/429. */
+  _attempt?: number
 }
 
 type GeminiContent = { role: 'user' | 'model'; parts: { text: string }[] }
@@ -121,6 +123,15 @@ export async function generate(
     if (res.status === 400 && /logprobs/i.test(msg) && wantLogprobs) {
       noLogprobs.add(model)
       return generate(contents, { ...opts, logprobs: false })
+    }
+
+    // Transient overload. These are common on the popular models and show up
+    // as an empty column in the comparison view, so retry briefly rather than
+    // failing the whole run.
+    const attempt = opts._attempt ?? 0
+    if ((res.status === 503 || res.status === 429) && attempt < 2) {
+      await new Promise((r) => setTimeout(r, 700 * (attempt + 1)))
+      return generate(contents, { ...opts, _attempt: attempt + 1 })
     }
 
     throw new GeminiError(msg, res.status, json)
