@@ -332,3 +332,62 @@ being scored.
 **Why:** The popular models return 503 under load. In the comparison view that
 surfaced as one column silently empty, which reads as a broken product rather
 than a busy upstream.
+
+---
+
+## D-24 - Show where on the page each citation was found
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Decision:** Every verified claim carries an `EvidenceLocation`: the source, the
+nearest heading above the match, character offset, how far down the page it sits,
+the surrounding text, and a `#:~:text=` deep link that scrolls the real page to
+the passage and highlights it.
+
+**Why:** "The page supports this" is an assertion. "Wikipedia, under Early
+history, 5% down, here is the sentence and the link that jumps to it" is
+checkable. The deep link uses the real page substring rather than the model's
+wording, or the browser fails to find it.
+
+---
+
+## D-25 - Corroboration matches facts, verbatim matching catches fabrication
+**Date:** 2026-09-03 * **Status:** Accepted * **Refines D-19**
+
+**Context:** After D-19 the pipeline could never reach Certain. The judge names
+one source per claim, so corroboration was capped at the number of claims, and
+`SINGLE_SOURCE` fired on every answer.
+
+**Decision:** Two different tests for two different questions.
+- *Did the model invent this quote?* - verbatim string match, unchanged.
+- *Does another source say the same thing?* - entity overlap. Extract the
+  claim's proper nouns, numbers and years; a page carrying 80% of them is
+  asserting the same fact however it is worded.
+
+Corroboration is counted by distinct **domain**, so two Wikipedia articles are
+one source.
+
+**Why:** Requiring a verbatim sentence match across outlets is the wrong test -
+two sites state the same fact in different words, so nothing ever corroborated.
+
+---
+
+## D-26 - Search engines and social feeds are never evidence
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Decision:** Results from google, bing, duckduckgo, chat assistants and social
+platforms are dropped before scoring.
+
+**Why:** A search results page leaked in as a confirming source. Citing the
+retrieval layer as evidence for its own output is circular.
+
+---
+
+## D-27 - Bot-challenge pages are unreadable, not empty
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Decision:** A short body matching "just a moment", "enable javascript",
+"verify you are human" is marked `blocked by bot protection` and contributes
+nothing, with that reason stated in the source audit trail.
+
+**Why:** Cloudflare returns HTTP 200 with a placeholder. Without this,
+britannica.com looked like a page that simply said "Just a moment".

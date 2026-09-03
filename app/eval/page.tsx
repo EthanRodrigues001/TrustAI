@@ -174,6 +174,7 @@ export default function EvalPage() {
                           {e.domain && (
                             <span className="ml-1 font-normal text-muted-foreground">
                               via {e.domain}
+                              {e.section && <> under &ldquo;{e.section}&rdquo;</>}
                             </span>
                           )}
                         </p>
@@ -188,6 +189,16 @@ export default function EvalPage() {
                           >
                             “{e.quote}”
                           </blockquote>
+                        )}
+                        {e.deepLink && (
+                          <a
+                            href={e.deepLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-1 inline-block underline underline-offset-2 hover:no-underline"
+                          >
+                            Open the page at this passage
+                          </a>
                         )}
                         {e.quote && !e.quoteVerified && (
                           <p className="mt-1 text-rose-600 dark:text-rose-400">

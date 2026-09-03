@@ -186,9 +186,12 @@ export function fuse(inp: Inputs): Verdict {
   const supportingIds = new Set(
     claims.filter((c) => c.quoteVerified).flatMap((c) => c.sourceIds)
   )
-  const goodUnique = unique.filter(
-    (s) => supportingIds.has(s.id) && s.trustScore >= 0.65
-  ).length
+  // Counted by distinct domain: two articles on the same site are one source.
+  const goodUnique = new Set(
+    unique
+      .filter((s) => supportingIds.has(s.id) && s.trustScore >= 0.65)
+      .map((s) => s.domain)
+  ).size
   const d2 = goodUnique === 0 ? 0 : goodUnique === 1 ? 0.5 : goodUnique === 2 ? 0.8 : 1
   params.push(P('D2', 'D', 'Sources', 'Corroboration',
     'How many independent good sources agree?', d2, 0.05,

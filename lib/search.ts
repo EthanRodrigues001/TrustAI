@@ -18,6 +18,18 @@ export type SearchResult = {
   provider: 'duckduckgo' | 'wikipedia'
 }
 
+/**
+ * Never treat these as evidence. A search results page, an AI answer box or a
+ * social feed is not a source - citing one would mean citing the retrieval
+ * itself, which is exactly the circularity this project avoids.
+ */
+const NOT_EVIDENCE =
+  /(^|\.)(google|bing|duckduckgo|yahoo|baidu|yandex|ask|search|perplexity|you|chatgpt|openai|gemini|copilot|x|twitter|facebook|instagram|tiktok|pinterest)\.[a-z.]+$/i
+
+function isEvidenceHost(host: string): boolean {
+  return !NOT_EVIDENCE.test(host.replace(/^www\./, ''))
+}
+
 const UA =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36'
 
@@ -125,6 +137,7 @@ export async function findEvidence(
   for (const r of [...ddg, ...wiki]) {
     let host = ''
     try { host = new URL(r.url).hostname } catch { continue }
+    if (!isEvidenceHost(host)) continue
     // at most two pages from any one host, so one site cannot dominate
     const n = merged.filter((x) => {
       try { return new URL(x.url).hostname === host } catch { return false }

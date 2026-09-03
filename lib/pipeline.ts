@@ -7,6 +7,7 @@ import { fuse } from '@/lib/signals'
 import { resolvePerplexity } from '@/lib/perplexity'
 import type {
   ChatRequest, StreamEvent, Claim, MessageKind, FetchedPage, Source,
+  EvidenceLocation,
 } from '@/lib/types'
 
 type Emit = (e: StreamEvent) => void
@@ -46,20 +47,102 @@ function splitSentences(text: string): { text: string; span: [number, number] }[
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim()
 
-/** C2 — does the quote the model gave actually exist on the page we fetched? */
-function quoteIsOnPage(quote: string, page: string): boolean {
-  const q = norm(quote), p = norm(page)
-  if (!q || q.length < 12) return false
-  if (p.includes(q)) return true
-  // fuzzy: 90% of the quote's 4-word shingles must appear
-  const w = q.split(' ')
-  if (w.length < 4) return false
-  let hit = 0, total = 0
-  for (let i = 0; i <= w.length - 4; i++) {
-    total++
-    if (p.includes(w.slice(i, i + 4).join(' '))) hit++
+/**
+ * C2 — locate the model's quote in the page we actually fetched.
+ *
+ * Returns null when the quote is not there, which is the catch this whole
+ * project is built around. When it is there, we report exactly where, so the
+ * evidence can be opened and checked rather than taken on trust.
+ *
+ * `page.text` is already whitespace-collapsed, so offsets found here are real
+ * offsets into that text and can be used for context and deep links.
+ */
+function locateQuote(
+  quote: string,
+  page: FetchedPage,
+  sourceId: string
+): EvidenceLocation | null {
+  const q = quote.replace(/\s+/g, ' ').trim()
+  if (!q || q.length < 12 || !page.text) return null
+
+  const hay = page.text
+  const lowerHay = hay.toLowerCase()
+  let offset = lowerHay.indexOf(q.toLowerCase())
+  let method: 'exact' | 'fuzzy' = 'exact'
+  let matchedLength = q.length
+
+  if (offset < 0) {
+    // Fuzzy: require 90% of the quote's 4-word shingles to appear, and take the
+    // earliest hit as the anchor so context lands in the right place.
+    const w = q.toLowerCase().split(' ')
+    if (w.length < 4) return null
+    let hits = 0, total = 0, first = -1
+    for (let i = 0; i <= w.length - 4; i++) {
+      total++
+      const at = lowerHay.indexOf(w.slice(i, i + 4).join(' '))
+      if (at >= 0) { hits++; if (first < 0) first = at }
+    }
+    if (!total || hits / total < 0.9 || first < 0) return null
+    offset = first
+    method = 'fuzzy'
+    matchedLength = Math.min(q.length, hay.length - offset)
   }
-  return total > 0 && hit / total >= 0.9
+
+  const matchedText = hay.slice(offset, offset + matchedLength)
+
+  // Nearest heading appearing before the match.
+  let section: string | null = null
+  let best = -1
+  for (const h of page.headings) {
+    const at = lowerHay.indexOf(h.toLowerCase())
+    if (at >= 0 && at <= offset && at > best) { best = at; section = h }
+  }
+
+  // Text fragment link. Use the real page substring, never the model's wording,
+  // or the browser will fail to find it.
+  const frag = matchedText.split(' ').slice(0, 12).join(' ')
+  const deepLink = `${page.url}#:~:text=${encodeURIComponent(frag)}`
+
+  return {
+    sourceId,
+    offset,
+    position: hay.length ? offset / hay.length : 0,
+    section,
+    contextBefore: hay.slice(Math.max(0, offset - 180), offset),
+    contextAfter: hay.slice(offset + matchedLength, offset + matchedLength + 180),
+    matchedText,
+    deepLink,
+    method,
+  }
+}
+
+const STOPWORD_CAPS = /^(The|This|That|It|He|She|They|A|An|In|On|At|Of|But|And)$/
+
+/**
+ * Does this page independently assert the same fact?
+ *
+ * Verbatim matching is the right test for "did the model invent this quote",
+ * but the wrong test for corroboration - two outlets state the same fact in
+ * different words. So we check the claim's distinctive content instead: proper
+ * nouns, numbers and years. A page carrying nearly all of them is asserting the
+ * same thing, however it is phrased.
+ */
+function corroborates(claim: string, page: FetchedPage): boolean {
+  if (!page.text) return false
+
+  const matches = claim.match(/[A-Z][a-z]{2,}|\d[\d.,]*/g) ?? []
+  const entities = [
+    ...new Set(
+      matches
+        .filter((t) => !STOPWORD_CAPS.test(t))
+        .map((t) => t.toLowerCase().replace(/[.,]+$/, ''))
+    ),
+  ]
+  if (entities.length < 2) return false
+
+  const hay = page.text.toLowerCase()
+  const hits = entities.filter((e) => hay.includes(e)).length
+  return hits / entities.length >= 0.8
 }
 
 async function verifyClaims(
@@ -75,7 +158,8 @@ async function verifyClaims(
     const sent = sentences[i]
     const base: Claim = {
       id: `c${i + 1}`, text: sent.text, standalone: sent.text, span: sent.span,
-      verdict: 'UNCHECKED', quote: null, quoteVerified: false, sourceIds: [], note: null,
+      verdict: 'UNCHECKED', quote: null, quoteVerified: false, sourceIds: [],
+      location: null, note: null,
     }
 
     if (!usable.length) {
@@ -118,13 +202,36 @@ async function verifyClaims(
       claims.push(base); emit({ type: 'claim', claim: base }); continue
     }
 
-    const src = usable.find((x) => x.s.id === r.sourceId) ?? usable[0]
-    const verified = r.quote ? quoteIsOnPage(r.quote, src.p.text) : false
+    // The judge names a source, but the quote may actually sit on another page,
+    // so check the named one first and then fall back to searching them all.
+    const named = usable.find((x) => x.s.id === r.sourceId) ?? usable[0]
+    let location = r.quote ? locateQuote(r.quote, named.p, named.s.id) : null
+    let src = named
+    if (r.quote && !location) {
+      for (const cand of usable) {
+        if (cand.s.id === named.s.id) continue
+        const loc = locateQuote(r.quote, cand.p, cand.s.id)
+        if (loc) { location = loc; src = cand; break }
+      }
+    }
+    const verified = !!location
+
+    // The judge names one source per claim, so corroboration would otherwise be
+    // capped at the number of claims and nothing could ever reach Certain.
+    // Check the other pages ourselves - no extra model call.
+    const corroborating: string[] = []
+    if (location) {
+      for (const cand of usable) {
+        if (cand.s.id === src.s.id) continue
+        if (corroborates(sent.text, cand.p)) corroborating.push(cand.s.id)
+      }
+    }
 
     base.verdict = r.verdict === 'SUPPORTED' && !verified ? 'NOT_FOUND' : r.verdict
     base.quote = r.quote || null
     base.quoteVerified = verified
-    base.sourceIds = r.quote ? [src.s.id] : []
+    base.location = location
+    base.sourceIds = verified ? [src.s.id, ...corroborating] : []
     if (r.quote && !verified) {
       base.note = 'The model produced this quote to support the claim. It does not appear on the cited page.'
     }

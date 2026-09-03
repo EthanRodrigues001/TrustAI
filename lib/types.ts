@@ -95,6 +95,26 @@ export type Override = {
   cappedAt: Label
 }
 
+/** Exactly where in a source page the supporting quote was located. */
+export type EvidenceLocation = {
+  sourceId: string
+  /** Character offset into the extracted page text. */
+  offset: number
+  /** How far through the page, 0..1 — "near the top", "two thirds down". */
+  position: number
+  /** Nearest heading above the match, when the page has one. */
+  section: string | null
+  /** Page text immediately before and after, so the quote can be read in situ. */
+  contextBefore: string
+  contextAfter: string
+  /** The real page substring that matched, not the model's paraphrase of it. */
+  matchedText: string
+  /** Deep link that scrolls to and highlights the passage in the browser. */
+  deepLink: string
+  /** 'exact' string hit, or 'fuzzy' shingle overlap. */
+  method: 'exact' | 'fuzzy'
+}
+
 export type Claim = {
   id: string
   /** As it appears in the answer. */
@@ -109,6 +129,8 @@ export type Claim = {
   /** Did that quote actually string-match the fetched page? */
   quoteVerified: boolean
   sourceIds: string[]
+  /** Where the quote was found. Null when nothing was located. */
+  location: EvidenceLocation | null
   note: string | null
 }
 
@@ -214,6 +236,8 @@ export type FetchedPage = {
   domain: string
   title: string
   text: string
+  /** Headings in document order, for naming the section a quote came from. */
+  headings: string[]
   /** First readable paragraph, for display. */
   snippet: string
   publishedAt: string | null

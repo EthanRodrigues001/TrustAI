@@ -25,6 +25,10 @@ export type EvalResult = EvalCase & {
     quote: string | null
     quoteVerified: boolean
     domain: string | null
+    /** Where on the page the quote was located. */
+    section: string | null
+    deepLink: string | null
+    position: number | null
   }[]
   overrides: string[]
   ms: number
@@ -100,6 +104,9 @@ export async function GET(request: Request) {
               quoteVerified: cl.quoteVerified,
               domain:
                 v.sources.find((s) => cl.sourceIds.includes(s.id))?.domain ?? null,
+              section: cl.location?.section ?? null,
+              deepLink: cl.location?.deepLink ?? null,
+              position: cl.location?.position ?? null,
             })),
             overrides: v.overrides.map((o) => o.message),
             ms: Date.now() - t0,

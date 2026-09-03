@@ -2,7 +2,9 @@
 
 import { useState } from 'react'
 import { cn } from '@/lib/utils'
-import type { Verdict, Label, Claim, Source, Parameter } from '@/lib/types'
+import type {
+  Verdict, Label, Claim, Source, Parameter, EvidenceLocation,
+} from '@/lib/types'
 
 // ------------------------------------------------------------------ tokens
 
@@ -107,8 +109,8 @@ export function AnnotatedAnswer({ text, claims }: { text: string; claims: Claim[
       <span
         key={c.id}
         title={
-          c.verdict === 'SUPPORTED' && c.quote
-            ? `Verified: “${c.quote}”`
+          c.location
+            ? `Verified on ${c.location.sourceId}${c.location.section ? ` under "${c.location.section}"` : ''}: “${c.location.matchedText}”`
             : c.note ?? ui.label
         }
         className={cn(
@@ -321,6 +323,65 @@ function ParamsTab({ v }: { v: Verdict }) {
   )
 }
 
+function whereOnPage(p: number): string {
+  if (p < 0.15) return 'near the top of the page'
+  if (p < 0.4) return 'in the first third of the page'
+  if (p < 0.6) return 'about halfway down the page'
+  if (p < 0.85) return 'in the last third of the page'
+  return 'near the bottom of the page'
+}
+
+/** Shows exactly where the quote was found, so it can be checked. */
+function Provenance({ loc, source }: { loc: EvidenceLocation; source?: Source }) {
+  return (
+    <div className="mt-2 rounded-lg border bg-muted/30 px-2.5 py-2">
+      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+        Found on the page
+      </p>
+
+      <p className="mt-1 text-xs">
+        {source && (
+          <span className="font-medium">{source.domain}</span>
+        )}
+        {loc.section && (
+          <>
+            {source && <span className="text-muted-foreground"> · </span>}
+            <span>under &ldquo;{loc.section}&rdquo;</span>
+          </>
+        )}
+        <span className="text-muted-foreground">
+          {source || loc.section ? ' · ' : ''}
+          {whereOnPage(loc.position)}
+        </span>
+      </p>
+
+      {/* the quote in situ, so the surrounding text is visible too */}
+      <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
+        {loc.contextBefore && <>&hellip;{loc.contextBefore}</>}
+        <mark className="rounded bg-emerald-500/20 px-0.5 text-foreground">
+          {loc.matchedText}
+        </mark>
+        {loc.contextAfter && <>{loc.contextAfter}&hellip;</>}
+      </p>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
+        <a
+          href={loc.deepLink}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-xs font-medium underline underline-offset-2 hover:no-underline"
+        >
+          Open the page at this passage
+        </a>
+        <span className="font-mono text-[10px] text-muted-foreground">
+          char {loc.offset.toLocaleString()}
+          {loc.method === 'fuzzy' && ' · near match'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
 function ClaimsTab({ v }: { v: Verdict }) {
   if (!v.claims.length) {
     return <p className="text-muted-foreground">No individual claims were extracted.</p>
@@ -329,6 +390,7 @@ function ClaimsTab({ v }: { v: Verdict }) {
     <div className="space-y-2">
       {v.claims.map((c) => {
         const ui = CLAIM_UI[c.verdict]
+        const source = v.sources.find((s) => c.sourceIds.includes(s.id))
         return (
           <div key={c.id} className="rounded-lg border px-3 py-2.5">
             <p className="font-medium">{c.text}</p>
@@ -343,24 +405,31 @@ function ClaimsTab({ v }: { v: Verdict }) {
                     : 'border-rose-500/50 text-rose-600 line-through decoration-rose-500/50 dark:text-rose-400'
                 )}
               >
-                “{c.quote}”
+                &ldquo;{c.quote}&rdquo;
               </blockquote>
+            )}
+
+            {c.location && <Provenance loc={c.location} source={source} />}
+
+            {c.sourceIds.length > 1 && (
+              <p className="mt-1.5 text-xs text-muted-foreground">
+                The same fact is independently stated by{' '}
+                {c.sourceIds
+                  .slice(1)
+                  .map((id) => v.sources.find((s) => s.id === id)?.domain ?? id)
+                  .join(', ')}
+                .
+              </p>
             )}
 
             {c.quote && !c.quoteVerified && (
               <p className="mt-1.5 rounded bg-rose-500/10 px-2 py-1 text-xs text-rose-700 dark:text-rose-300">
-                This quote does not appear on the cited page.
+                This quote appears on none of the pages we read. The model invented it.
               </p>
             )}
 
             {c.note && !c.quote && (
               <p className="mt-1.5 text-xs text-muted-foreground">{c.note}</p>
-            )}
-
-            {c.sourceIds.length > 0 && (
-              <p className="mt-1.5 font-mono text-[10px] text-muted-foreground">
-                {c.sourceIds.join(', ')}
-              </p>
             )}
           </div>
         )

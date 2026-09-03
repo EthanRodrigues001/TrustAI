@@ -106,17 +106,24 @@ export async function fetchPage(
     })
     const html = await r.text()
     const text = extractText(html)
+    // Bot challenges return HTTP 200 with a placeholder body. Treat them as
+    // unreadable rather than as a page that happens to say "Just a moment".
+    const blocked =
+      text.length < 400 &&
+      /just a moment|enable javascript|attention required|verify you are human|checking your browser/i.test(text)
     return {
       url, domain,
       title: extractTitle(html),
       text,
+      headings: extractHeadings(html),
       snippet: extractSnippet(html, text),
       publishedAt: extractDate(html),
-      failed: !r.ok,
+      failed: !r.ok || blocked,
+      error: blocked ? 'blocked by bot protection' : undefined,
     }
   } catch (e) {
     return {
-      url, domain, title: '', text: '', snippet: '', publishedAt: null,
+      url, domain, title: '', text: '', headings: [], snippet: '', publishedAt: null,
       failed: true, error: (e as Error).message,
     }
   } finally {
@@ -155,6 +162,13 @@ export function extractText(html: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 40000)
+}
+
+/** Headings in document order, used to say which section a quote came from. */
+export function extractHeadings(html: string): string[] {
+  return [...html.matchAll(/<h[1-4][^>]*>([\s\S]*?)<\/h[1-4]>/gi)]
+    .map((m) => extractText(m[1]))
+    .filter((t) => t.length > 2 && t.length < 120)
 }
 
 /**
@@ -217,7 +231,11 @@ export async function buildSources(
     let score = TIER_SCORE[tier]
 
     if (page.failed) {
-      path.push('page could not be fetched — contributes nothing')
+      path.push(
+        page.error === 'blocked by bot protection'
+          ? 'blocked by bot protection, page unreadable — contributes nothing'
+          : 'page could not be fetched — contributes nothing'
+      )
       score = 0
     }
 
