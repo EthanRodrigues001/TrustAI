@@ -1,6 +1,9 @@
 /** Source resolution, fetching and trust scoring (Group D). */
 
-import type { Source, FetchedPage, Tier, Badge, GroundingChunk } from '@/lib/types'
+import type { Source, FetchedPage, Tier, Badge } from '@/lib/types'
+
+/** Anything we can turn into a Source: our own search hits, or Gemini chunks. */
+export type Candidate = { url: string; title?: string; snippet?: string }
 
 const TIER_SCORE: Record<Tier, number> = {
   T0: 1, T1: 0.95, T2: 0.85, T3: 0.65, T4: 0.4, T5: 0.15, T6: 0,
@@ -102,16 +105,18 @@ export async function fetchPage(
       headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TrustAI/0.1)' },
     })
     const html = await r.text()
+    const text = extractText(html)
     return {
       url, domain,
       title: extractTitle(html),
-      text: extractText(html),
+      text,
+      snippet: extractSnippet(html, text),
       publishedAt: extractDate(html),
       failed: !r.ok,
     }
   } catch (e) {
     return {
-      url, domain, title: '', text: '', publishedAt: null,
+      url, domain, title: '', text: '', snippet: '', publishedAt: null,
       failed: true, error: (e as Error).message,
     }
   } finally {
@@ -137,6 +142,12 @@ export function extractText(html: string): string {
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<noscript[\s\S]*?<\/noscript>/gi, ' ')
+    // page chrome, otherwise every snippet reads "Jump to content Main menu..."
+    .replace(/<nav[\s\S]*?<\/nav>/gi, ' ')
+    .replace(/<header[\s\S]*?<\/header>/gi, ' ')
+    .replace(/<footer[\s\S]*?<\/footer>/gi, ' ')
+    .replace(/<aside[\s\S]*?<\/aside>/gi, ' ')
+    .replace(/<form[\s\S]*?<\/form>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
     .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&')
     .replace(/&quot;/g, '"').replace(/&#39;/g, "'")
@@ -144,6 +155,22 @@ export function extractText(html: string): string {
     .replace(/\s+/g, ' ')
     .trim()
     .slice(0, 40000)
+}
+
+/**
+ * A human-readable snippet: the first substantial <p>, falling back to the
+ * plain text. Without this the snippet is whatever navigation chrome happened
+ * to sit at the top of the document.
+ */
+export function extractSnippet(html: string, fallback: string): string {
+  const paras = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/gi)]
+    .map((m) => extractText(m[1]))
+    .filter(
+      (t) =>
+        t.length > 80 &&
+        !/cookie|subscribe|sign in|sign up|advertisement|lost your password|enter your email|create a new password|newsletter/i.test(t)
+    )
+  return (paras[0] ?? fallback).slice(0, 280)
 }
 
 /** D3 — near-duplicate detection. Three sites, one wire story. */
@@ -162,19 +189,21 @@ function similarity(a: string, b: string): number {
 }
 
 /**
- * Resolve, fetch and score every grounding chunk.
+ * Resolve, fetch and score every candidate source.
  * Runs the escalation chain for unknown domains.
  */
 export async function buildSources(
-  chunks: GroundingChunk[],
+  candidates: Candidate[],
   timeoutMs = 8000
 ): Promise<{ sources: Source[]; pages: FetchedPage[] }> {
   const resolved = await Promise.all(
-    chunks.map(async (c, i) => {
-      const raw = c.web?.uri ?? ''
-      const url = c.web?.domain ? raw : await resolveUrl(raw)
-      return { i, url, title: c.web?.title ?? '', hinted: c.web?.domain }
-    })
+    candidates.map(async (c, i) => ({
+      i,
+      url: await resolveUrl(c.url),
+      title: c.title ?? '',
+      snippet: c.snippet ?? '',
+      hinted: undefined as string | undefined,
+    }))
   )
 
   const pages = await Promise.all(
@@ -201,7 +230,7 @@ export async function buildSources(
       tierLabel: TIER_LABEL[tier],
       trustScore: score,
       badge: TIER_BADGE[tier],
-      snippet: page.text.slice(0, 240),
+      snippet: page.snippet || r.snippet || page.text.slice(0, 240),
       publishedAt: page.publishedAt,
       verificationPath: path,
       duplicateOf: null,
@@ -225,17 +254,22 @@ export async function buildSources(
 
   // Escalation: an unknown domain agreeing with 2+ trusted ones gets promoted.
   const trusted = sources.filter(
-    (s) => !s.duplicateOf && !s.fetchFailed && ['T0', 'T1', 'T2'].includes(s.tier)
+    (s) => !s.duplicateOf && !s.fetchFailed && ['T0', 'T1', 'T2', 'T3'].includes(s.tier)
   ).length
   for (const s of sources) {
-    if (s.tier === 'T4' && !s.fetchFailed && trusted >= 2) {
+    if (s.tier !== 'T4' || s.fetchFailed) continue
+    if (trusted >= 2) {
       s.trustScore = 0.7
       s.verificationPath.push(
-        `agrees with ${trusted} higher-tier sources — promoted to 0.70`
+        `corroborated by ${trusted} classified sources — promoted to 0.70`
       )
-    } else if (s.tier === 'T4' && !s.fetchFailed) {
-      s.verificationPath.push('no corroboration from higher-tier sources — contributes nothing')
+    } else {
       s.trustScore = 0
+      s.verificationPath.push(
+        trusted === 1
+          ? 'only 1 classified source to corroborate against — contributes nothing'
+          : 'no classified source to corroborate against — contributes nothing'
+      )
     }
   }
 

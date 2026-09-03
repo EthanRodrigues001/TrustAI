@@ -179,12 +179,23 @@ export function fuse(inp: Inputs): Verdict {
       : 'No sources',
     live.length ? band(d1) : 'skipped'))
 
-  const goodUnique = unique.filter((s) => s.trustScore >= 0.65).length
+  // Corroboration counts sources that ACTUALLY supported a claim, not merely
+  // sources we happened to fetch. Counting the latter would manufacture the
+  // false confidence this tool exists to prevent.
+  const supportingIds = new Set(
+    claims.filter((c) => c.quoteVerified).flatMap((c) => c.sourceIds)
+  )
+  const goodUnique = unique.filter(
+    (s) => supportingIds.has(s.id) && s.trustScore >= 0.65
+  ).length
   const d2 = goodUnique === 0 ? 0 : goodUnique === 1 ? 0.5 : goodUnique === 2 ? 0.8 : 1
   params.push(P('D2', 'D', 'Sources', 'Corroboration',
     'How many independent good sources agree?', d2, 0.05,
-    goodUnique ? `${goodUnique} independent source${goodUnique > 1 ? 's' : ''} agree` : 'No source supports the claim',
-    band(d2)))
+    goodUnique
+      ? `${goodUnique} independent source${goodUnique > 1 ? 's' : ''} confirmed this`
+      : 'No source was found to support the claim',
+    band(d2),
+    `${live.length} page${live.length === 1 ? ' was' : 's were'} read; only sources carrying a verified quote count here.`))
 
   const dupes = sources.filter((s) => s.duplicateOf).length
   params.push(P('D3', 'D', 'Sources', 'Independence',
@@ -244,7 +255,7 @@ export function fuse(inp: Inputs): Verdict {
   // ---- narrative
   if (supported) reasons.push(`${supported} of ${checked.length} claims were verified against the pages that were cited`)
   if (fabricated.length) reasons.push('The model produced a supporting quote that does not appear on the page')
-  if (goodUnique >= 2) reasons.push(`${goodUnique} independent sources agree`)
+  if (goodUnique >= 2) reasons.push(`${goodUnique} independent sources confirmed this`)
   if (consistency) reasons.push(`The model gave the same answer in ${consistency.agree} of ${consistency.n} runs`)
   if (!sources.length) reasons.push('The model did not search the web for this answer')
   if (dupes) warnings.push(`${sources.length} sources found, but only ${unique.length} are genuinely independent`)
@@ -252,7 +263,7 @@ export function fuse(inp: Inputs): Verdict {
   if (label === 'NEEDS_VERIFICATION') warnings.push('Do not rely on this answer without checking it yourself')
 
   const headline =
-    label === 'CERTAIN' ? `Confirmed by ${goodUnique} independent source${goodUnique > 1 ? 's' : ''}`
+    label === 'CERTAIN' ? `Confirmed by ${goodUnique} independent source${goodUnique === 1 ? '' : 's'}`
       : label === 'UNCERTAIN' ? (overrides[0]?.message ?? 'Partially supported — verify before relying on it')
         : fabricated.length ? 'The cited page does not contain this claim'
           : 'Not enough evidence to trust this answer'

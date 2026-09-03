@@ -2,6 +2,7 @@
 
 import { generate, judgeJson, toContents, JUDGE_MODEL } from '@/lib/gemini/client'
 import { buildSources } from '@/lib/sources'
+import { findEvidence } from '@/lib/search'
 import { fuse } from '@/lib/signals'
 import { resolvePerplexity } from '@/lib/perplexity'
 import type {
@@ -159,20 +160,28 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
     return
   }
 
-  // Generate
+  // Generate. No Search grounding: we retrieve evidence ourselves, so the
+  // model never gets to pick the sources it will be judged against.
   emit({ type: 'stage', stage: 'generating', detail: 'Asking Gemini' })
   const gen = await generate(toContents(req.messages), {
-    search: true, logprobs: true, temperature: 0,
+    logprobs: true, temperature: 0,
     systemInstruction:
       'Answer factual questions concisely in 1-4 sentences. State facts plainly. Do not add caveats about your own uncertainty.',
   })
   emit({ type: 'token', text: gen.text })
 
-  // Sources
-  const chunks = gen.grounding?.groundingChunks ?? []
-  emit({ type: 'stage', stage: 'resolving', detail: `Resolving ${chunks.length} source${chunks.length === 1 ? '' : 's'}` })
-  const { sources, pages } = chunks.length
-    ? await buildSources(chunks, timeout)
+  // Independent retrieval
+  emit({ type: 'stage', stage: 'resolving', detail: 'Searching for independent evidence' })
+  const hits = await findEvidence(standalone, 5).catch(() => [])
+
+  emit({
+    type: 'stage', stage: 'fetching',
+    detail: hits.length
+      ? `Reading ${hits.length} page${hits.length === 1 ? '' : 's'}`
+      : 'No sources found',
+  })
+  const { sources, pages } = hits.length
+    ? await buildSources(hits, timeout)
     : { sources: [], pages: [] as FetchedPage[] }
   for (const s of sources) emit({ type: 'source', source: s })
 
@@ -191,7 +200,7 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
       const raw = await Promise.all(
         Array.from({ length: N }, () =>
           generate([{ role: 'user', parts: [{ text: standalone + '\n\nAnswer in one short sentence.' }] }],
-            { temperature: 0.8, search: true })
+            { temperature: 0.8 })
             .then((r) => r.text.trim())
             .catch(() => '')
         )
@@ -221,7 +230,11 @@ export async function runPipeline(req: ChatRequest, emit: Emit): Promise<void> {
 
   // Fuse
   emit({ type: 'stage', stage: 'scoring', detail: 'Scoring' })
-  const citedSentences = gen.grounding?.groundingSupports?.length ?? 0
+  // Without Gemini grounding there are no citation spans, so coverage is
+  // measured by how many of our own sentences found supporting evidence.
+  const citedSentences = claims.filter(
+    (c) => c.sourceIds.length > 0 && c.quoteVerified
+  ).length
   const verdict = fuse({
     gen, claims, sources, pages,
     question: standalone, consistency,

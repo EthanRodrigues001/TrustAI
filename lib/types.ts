@@ -202,6 +202,8 @@ export type FetchedPage = {
   domain: string
   title: string
   text: string
+  /** First readable paragraph, for display. */
+  snippet: string
   publishedAt: string | null
   failed: boolean
   error?: string

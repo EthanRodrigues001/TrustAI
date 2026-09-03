@@ -231,3 +231,57 @@ carries a DEMO badge and the header shows a "Demo data" pill.
 
 **Why:** The project is about honesty regarding what is verified. Unbadged demo
 data shown to judges would be the exact failure the tool exists to catch.
+
+---
+
+## D-18 - Retrieve evidence ourselves; drop Gemini Search grounding
+**Date:** 2026-09-03 * **Status:** Accepted * **Supersedes part of D-01**
+
+**Context:** Search grounding returns 429 on this key for every model and both
+tool spellings (`google_search` and `googleSearch`). Free tier grants zero
+grounded requests.
+
+**Decision:** `lib/search.ts` retrieves evidence independently via DuckDuckGo
+HTML plus the Wikipedia API - both keyless. Gemini answers the question; it
+never selects the sources it is judged against.
+
+**Why:** Practically, it unblocks the project. Principally, it is a stronger
+test than D-01 originally described: reading back a model's own citations lets
+it choose favourable evidence, while independent retrieval does not. The
+verification step is unchanged - re-fetch, demand a verbatim quote, string-match
+that quote against the real page.
+
+**Consequences:**
+- No `groundingSupports`, so C1 citation coverage is now measured by how many
+  answer sentences found supporting evidence of our own.
+- C5 (Gemini grounding confidence) reports "Not reported" and is skipped.
+- No `searchEntryPoint`, so the Google Search Suggestions display requirement no
+  longer applies.
+- At most two pages per host, so one site cannot dominate the evidence set.
+
+---
+
+## D-19 - Corroboration counts confirming sources, not fetched ones
+**Date:** 2026-09-03 * **Status:** Accepted
+
+**Context:** D2 initially counted every trusted source retrieved, so a run that
+fetched five pages but verified a quote in only one reported "5 independent
+sources agree".
+
+**Decision:** D2 counts only sources carrying a verified quote for some claim.
+
+**Why:** Counting pages we merely read manufactures exactly the false confidence
+this tool exists to detect. The parameter detail line now states how many pages
+were read alongside how many actually confirmed anything.
+
+---
+
+## D-20 - Demo mode removed
+**Date:** 2026-09-03 * **Status:** Accepted * **Supersedes D-17**
+
+**Decision:** `lib/demo.ts` and the UI toggle are deleted. The app talks to the
+live pipeline only.
+
+**Why:** With D-18 the live path works end to end, so canned data has no purpose.
+Its keyword routing also fell back to the Python case for almost every input,
+which read as the tool answering every question with Python.

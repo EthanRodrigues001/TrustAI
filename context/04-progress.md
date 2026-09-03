@@ -52,7 +52,18 @@ All of F1–F6 can be built before the backend works at all.
 
 ## Blocked on
 
-- [ ] **Gemini API key** — `.env.local`, `GEMINI_API_KEY=`. Never commit.
+Nothing. The pipeline runs end to end against the live API.
+
+Verified 2026-09-03 on the running dev server:
+
+| Question | Result |
+|---|---|
+| "Who invented Python and when was it first released?" | CERTAIN 0.90, 1/1 quote verified, 3/3 runs agreed, PPX 1.9 (sampled) |
+| "Who wrote the novel Things Fall Apart?" | CERTAIN 0.88, 2/2 quotes verified |
+| "What is the current stock price of Tesla?" | NEEDS_VERIFICATION 0.20, VOLATILE_STALE override fired |
+| "hi there" | NOT_APPLICABLE, Gate 0 held |
+
+Search grounding remains 429 on this key, but D-18 removed the dependency.
 
 ## PROBE RESULTS — 2026-09-03 (run `node scripts/probe.mjs`)
 
